@@ -1,14 +1,19 @@
 import { Map, Popup } from "maplibre-gl";
 import { MBTILES_TILE_URL, ROAD_WARDS_SOURCE, WARDS_FILL_LAYER } from "../config";
 
-export function addMapLayers(map: Map) {
+export const VECTOR_SOURCE_LAYERS = {
+  pmtiles: { roads: ["roads-line"], wards: ["hcm-wards-fill", "hcm-wards-outline"] },
+  mbtiles: { roads: ["mbtiles-roads"], wards: ["mbtiles-wards-fill", "mbtiles-wards-outline"] },
+} as const;
+
+export function addMapLayers(map: Map, benchmarkRun: string) {
   // The primary path is PMTiles: the browser reads only viewport byte ranges.
-  map.addSource(ROAD_WARDS_SOURCE, { type: "vector", url: "pmtiles:///hcm-road-wards.pmtiles" });
+  map.addSource(ROAD_WARDS_SOURCE, { type: "vector", url: `pmtiles:///hcm-road-wards.pmtiles?benchmark-run=${encodeURIComponent(benchmarkRun)}` });
   map.addLayer({ id: "roads-line", type: "line", source: ROAD_WARDS_SOURCE, "source-layer": "roads", paint: {
     "line-color": "#d33", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 12, 1.5, 16, 4],
     "line-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0.25, 12, 0.6, 16, 1],
   }});
-  map.addSource("hcm-boundary", { type: "geojson", data: "/hcm.geojson" });
+  map.addSource("hcm-boundary", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({ id: "hcm-fill", type: "fill", source: "hcm-boundary", paint: { "fill-color": "#0f766e", "fill-opacity": 0.22 } });
   map.addLayer({ id: "hcm-outline", type: "line", source: "hcm-boundary", paint: { "line-color": "#115e59", "line-width": 2 } });
   map.addLayer({ id: WARDS_FILL_LAYER, type: "fill", source: ROAD_WARDS_SOURCE, "source-layer": "wards", paint: { "fill-color": "#f59e0b", "fill-opacity": 0.12 } });
@@ -19,6 +24,8 @@ export function addComparisonSources(map: Map) {
   // Comparison sources start hidden and are enabled on demand by the panel.
   map.addSource("mbtiles", { type: "vector", tiles: [MBTILES_TILE_URL], minzoom: 10, maxzoom: 16 });
   map.addLayer({ id: "mbtiles-roads", type: "line", source: "mbtiles", "source-layer": "roads", layout: { visibility: "none" }, paint: { "line-color": "#0891b2", "line-width": 2, "line-opacity": 0.8 } });
+  map.addLayer({ id: "mbtiles-wards-fill", type: "fill", source: "mbtiles", "source-layer": "wards", layout: { visibility: "none" }, paint: { "fill-color": "#f59e0b", "fill-opacity": 0.12 } });
+  map.addLayer({ id: "mbtiles-wards-outline", type: "line", source: "mbtiles", "source-layer": "wards", layout: { visibility: "none" }, paint: { "line-color": "#b45309", "line-width": 1.2, "line-opacity": 0.85 } });
   map.addSource("png-roads", { type: "raster", tiles: ["/raster-roads/{z}/{x}/{y}.png"], tileSize: 256, minzoom: 8, maxzoom: 12 });
   map.addLayer({ id: "png-roads-layer", type: "raster", source: "png-roads", layout: { visibility: "none" }, paint: { "raster-opacity": 0.65 } });
   map.addSource("png-wards", { type: "raster", tiles: ["/raster-wards/{z}/{x}/{y}.png"], tileSize: 256, minzoom: 8, maxzoom: 12 });

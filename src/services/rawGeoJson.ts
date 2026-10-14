@@ -1,17 +1,10 @@
-import type { RawKind } from "../types";
-
-export const RAW_URLS: Record<RawKind, string> = {
-  roads: "/hcm-road-wards.geojson",
-  wards: "/hcm-admin-wards.geojson",
-};
-
-export async function fetchRawGeoJson(kind: RawKind, signal?: AbortSignal) {
-  const downloadStart = performance.now();
-  const response = await fetch(RAW_URLS[kind], { cache: "no-store", signal });
-  if (!response.ok) throw new Error(`${RAW_URLS[kind]} returned HTTP ${response.status}`);
-  const payload = await response.arrayBuffer();
-  const downloadMs = performance.now() - downloadStart;
-  const parseStart = performance.now();
-  const data = JSON.parse(new TextDecoder().decode(payload));
-  return { data, bytes: payload.byteLength, downloadMs, parseMs: performance.now() - parseStart };
+export async function fetchRawGeoJson(signal?: AbortSignal, benchmarkRun?: string) {
+  const path = "/hcm-road-wards.geojson";
+  const url = benchmarkRun
+    ? `${path}?benchmark-map=raw&benchmark-run=${encodeURIComponent(benchmarkRun)}`
+    : path;
+  const response = await fetch(url, { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
+  const data = await response.json();
+  return { data };
 }

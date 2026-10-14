@@ -1,100 +1,119 @@
-import { useRef, useState } from "react";
-import type { Map } from "maplibre-gl";
-import type { CSSProperties } from "react";
+import { useState } from "react";
 import "./App.css";
 import { BenchmarkPanel } from "./components/BenchmarkPanel";
+import { ComparisonToolbar } from "./components/ComparisonToolbar";
 import { MapView } from "./components/MapView";
-import { LAYERS } from "./config";
-import { useBenchmark } from "./hooks/useBenchmark";
-import { useRawLayers } from "./hooks/useRawLayers";
-import type { ComparisonKind, LayerId } from "./types";
+import { useBenchmarkSession } from "./hooks/useBenchmarkSession";
+import { VECTOR_SOURCE_LAYERS } from "./map/layers";
+
+const EMPTY_BENCHMARK = { requests: [] };
 
 function App() {
-  const mapRef = useRef<Map | null>(null);
-  const [mapLoadStart, setMapLoadStart] = useState<number | null>(null);
-  const [visibleLayers, setVisibleLayers] = useState<Record<LayerId, boolean>>({ roads: true, hcm: true, wards: true });
-  const [comparisonLayers, setComparisonLayers] = useState<Record<ComparisonKind, boolean>>({
-    mbtiles: false,
-    png: false,
-  });
-  const { benchmark, setBenchmark, refresh, readResources } = useBenchmark(mapLoadStart);
-  const { rawLayers, rawLoading, rawError, toggle: toggleRawLayer } = useRawLayers(mapRef, setBenchmark);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [tiledVisibility, setTiledVisibility] = useState({ roads: true, wards: true, boundary: true });
+  const [vectorSource, setVectorSource] = useState<"pmtiles" | "mbtiles">("pmtiles");
+  const [pngVisible, setPngVisible] = useState(false);
+  const {
+    tiledMapRef, rawMapRef, runId, onTiledReady, onRawReady,
+    benchmark, rawLoading, rawError, runs, running, error,
+    clearRuns, rawLayers, toggleRawLayer,
+  } = useBenchmarkSession();
 
-  function toggleLayer(layer: (typeof LAYERS)[number]) {
-    const visible = !visibleLayers[layer.id];
-    layer.mapLayerIds.forEach((id) =>
-      mapRef.current?.setLayoutProperty(id, "visibility", visible ? "visible" : "none")
-    );
-    setVisibleLayers((current) => ({ ...current, [layer.id]: visible }));
+  function toggleTiledLayer(kind: keyof typeof tiledVisibility) {
+    const next = !tiledVisibility[kind];
+    const ids = kind === "boundary" ? ["hcm-fill", "hcm-outline"] : VECTOR_SOURCE_LAYERS[vectorSource][kind];
+    ids.forEach((id) => {
+      if (tiledMapRef.current?.getLayer(id))
+        tiledMapRef.current.setLayoutProperty(id, "visibility", next ? "visible" : "none");
+    });
+    setTiledVisibility((current) => ({ ...current, [kind]: next }));
+  }
+  function toggleSharedLayer(kind: keyof typeof tiledVisibility) {
+    const next = !tiledVisibility[kind];
+    toggleTiledLayer(kind);
+    if (kind === "boundary") {
+      ["hcm-fill", "hcm-outline"].forEach((id) => {
+        if (rawMapRef.current?.getLayer(id))
+          rawMapRef.current.setLayoutProperty(id, "visibility", next ? "visible" : "none");
+      });
+    } else if (rawLayers[kind] !== next) void toggleRawLayer(kind);
   }
 
-  function toggleComparisonLayer(kind: ComparisonKind) {
-    const ids = kind === "mbtiles" ? ["mbtiles-roads"] : ["png-roads-layer", "png-wards-layer"];
-    const nextVisible = !comparisonLayers[kind];
-    ids.forEach((id) => mapRef.current?.setLayoutProperty(id, "visibility", nextVisible ? "visible" : "none"));
-    if (nextVisible && kind === "mbtiles" && (mapRef.current?.getZoom() ?? 0) < 12)
-      mapRef.current?.easeTo({ zoom: 12, duration: 500 });
-    setComparisonLayers((current) => ({ ...current, [kind]: nextVisible }));
+  function togglePngLayer() {
+    const next = !pngVisible;
+    const ids = ["png-roads-layer", "png-wards-layer"];
+    ids.forEach((id) => {
+      if (tiledMapRef.current?.getLayer(id))
+        tiledMapRef.current.setLayoutProperty(id, "visibility", next ? "visible" : "none");
+    });
+    setPngVisible(next);
+  }
+
+  function selectVectorSource(source: "pmtiles" | "mbtiles") {
+    if (source === vectorSource) return;
+    const inactiveSource = source === "pmtiles" ? "mbtiles" : "pmtiles";
+    for (const id of [...VECTOR_SOURCE_LAYERS[inactiveSource].roads, ...VECTOR_SOURCE_LAYERS[inactiveSource].wards]) {
+      if (tiledMapRef.current?.getLayer(id)) tiledMapRef.current.setLayoutProperty(id, "visibility", "none");
+    }
+    for (const kind of ["roads", "wards"] as const) {
+      const ids = VECTOR_SOURCE_LAYERS[source][kind];
+      for (const id of ids) {
+        if (tiledMapRef.current?.getLayer(id)) tiledMapRef.current.setLayoutProperty(id, "visibility", tiledVisibility[kind] ? "visible" : "none");
+      }
+    }
+    setVectorSource(source);
   }
 
   return (
-    <div className="map-shell">
-      {benchmark && <BenchmarkPanel benchmark={benchmark} rawLoading={rawLoading} rawError={rawError} />}
-      <MapView
-        mapRef={mapRef}
-        setMapLoadStart={setMapLoadStart}
-        refresh={refresh}
-        readResources={readResources}
-        setBenchmark={setBenchmark}
+    <main className="benchmark-app">
+      <ComparisonToolbar
+        benchmarkOpen={benchmarkOpen}
+        benchmarkRunning={running}
+        rawLoading={rawLoading}
+        layerVisibility={tiledVisibility}
+        vectorSource={vectorSource}
+        pngVisible={pngVisible}
+        onToggleBenchmark={() => setBenchmarkOpen((open) => !open)}
+        onToggleLayer={toggleSharedLayer}
+        onSelectSource={selectVectorSource}
+        onTogglePng={togglePngLayer}
       />
-      <aside className="layer-panel" aria-label="Map layers">
-        <h1>Layers</h1>
-        <div className="layer-list">
-          {LAYERS.map((layer) => (
-            <button
-              className="layer-row"
-              key={layer.id}
-              onClick={() => toggleLayer(layer)}
-              aria-pressed={visibleLayers[layer.id]}>
-              <span className="layer-icon" style={{ "--layer-color": layer.color } as CSSProperties} />
-              <span className="layer-copy">
-                <strong>{layer.label}</strong>
-              </span>
-              <span className={`switch ${visibleLayers[layer.id] ? "switch--on" : ""}`} aria-hidden="true">
-                <span />
-              </span>
-            </button>
-          ))}
-        </div>
-        <h2 className="layer-section-title">Raw comparison</h2>
-        <div className="layer-list">
-          <button
-            className="raw-load-button"
-            disabled={rawLoading !== null}
-            aria-busy={rawLoading === "merged roads + wards"}
-            onClick={() => toggleRawLayer("roads")}>
-            {rawLoading === "merged roads + wards"
-              ? "Loading merged GeoJSON…"
-              : rawLayers.roads
-              ? "Hide merged GeoJSON"
-              : "Load merged GeoJSON (roads + wards)"}
-          </button>
-          <button
-            className="raw-load-button"
-            disabled={rawLoading !== null}
-            aria-busy={rawLoading === "wards"}
-            onClick={() => toggleRawLayer("wards")}>
-            {rawLayers.wards ? "Hide raw wards" : "Load raw wards GeoJSON"}
-          </button>
-          <button className="raw-load-button" onClick={() => toggleComparisonLayer("mbtiles")}>
-            {comparisonLayers.mbtiles ? "Hide MBTiles roads" : "Load MBTiles roads"}
-          </button>
-          <button className="raw-load-button" onClick={() => toggleComparisonLayer("png")}>
-            {comparisonLayers.png ? "Hide PNG folder tiles" : "Load PNG folder tiles"}
-          </button>
-        </div>
-      </aside>
-    </div>
+      <section className="map-comparison" aria-label="Map comparison">
+        <article className="map-card">
+          <h2 className="map-title">Tiled · {vectorSource === "pmtiles" ? "PMTiles" : "MBTiles"}</h2>
+          <div className="map-frame">
+            <MapView
+              mapRef={tiledMapRef}
+              variant="tiled"
+              benchmarkRun={runId}
+              onMapReady={onTiledReady}
+            />
+          </div>
+        </article>
+        <article className="map-card">
+          <h2 className="map-title">Raw · GeoJSON</h2>
+          <div className="map-frame">
+            <MapView
+              mapRef={rawMapRef}
+              variant="raw"
+              benchmarkRun={runId}
+              onMapReady={onRawReady}
+            />
+          </div>
+        </article>
+      </section>
+      {benchmarkOpen && (benchmark || running || error || runs.length > 0) && (
+        <BenchmarkPanel
+          benchmark={benchmark ?? EMPTY_BENCHMARK}
+          rawLoading={rawLoading}
+          rawError={rawError}
+          runs={runs}
+          running={running}
+          runError={error}
+          onClear={clearRuns}
+        />
+      )}
+    </main>
   );
 }
 export default App;

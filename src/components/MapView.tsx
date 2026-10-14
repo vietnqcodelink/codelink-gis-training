@@ -3,10 +3,9 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { useEffect, useRef } from "react";
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import { MAP_CENTER, MAP_STYLE } from "../config";
+import type { MutableRefObject } from "react";
+import { BENCHMARK_ZOOM, MAP_CENTER, MAP_STYLE } from "../config";
 import { addComparisonSources, addMapLayers, bindMapInteractions } from "../map/layers";
-import type { Benchmark } from "../types";
 
 const protocol = new Protocol();
 // Register once at module scope so React renders never duplicate the protocol.
@@ -15,60 +14,62 @@ setWorkerUrl(workerUrl);
 
 type Props = {
   mapRef: MutableRefObject<Map | null>;
-  setMapLoadStart: (value: number) => void;
-  refresh: () => void;
-  readResources: () => Pick<Benchmark, "pmtilesBytes" | "requests">;
-  setBenchmark: Dispatch<SetStateAction<Benchmark | null>>;
+  variant: "tiled" | "raw";
+  benchmarkRun: string;
+  onMapReady?: (map: Map) => void;
 };
 
-export function MapView({ mapRef, setMapLoadStart, refresh, readResources, setBenchmark }: Props) {
+export function MapView({ mapRef, variant, benchmarkRun, onMapReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const benchmarkStart = performance.now();
-    setMapLoadStart(benchmarkStart);
-    const map = new Map({ container: containerRef.current, style: MAP_STYLE, center: MAP_CENTER, zoom: 8 });
+    const map = new Map({
+      container: containerRef.current,
+      style: MAP_STYLE,
+      center: MAP_CENTER,
+      zoom: BENCHMARK_ZOOM,
+    });
     mapRef.current = map;
-    // Only PMTiles source events contribute to the transfer benchmark.
-    const onData = (event: unknown) => {
-      if (typeof event === "object" && event !== null && "sourceId" in event && event.sourceId === "hcm-road-wards")
-        refresh();
-    };
     const onLoad = () => {
-      // Add map layers and comparison sources
-      addMapLayers(map);
-      addComparisonSources(map);
-      bindMapInteractions(map);
-      map.on("data", onData);
+      if (variant === "tiled") {
+        addMapLayers(map, benchmarkRun);
+        addComparisonSources(map);
+        bindMapInteractions(map);
+      } else {
+        map.addSource("hcm-boundary", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] },
+        });
+        map.addLayer({
+          id: "hcm-fill",
+          type: "fill",
+          source: "hcm-boundary",
+          paint: { "fill-color": "#0f766e", "fill-opacity": 0.22 },
+        });
+        map.addLayer({
+          id: "hcm-outline",
+          type: "line",
+          source: "hcm-boundary",
+          paint: { "line-color": "#115e59", "line-width": 2 },
+        });
+      }
+      onMapReady?.(map);
 
-      setBenchmark((current) => ({
-        mapLoadMs: performance.now() - benchmarkStart,
-        firstIdleMs: current?.firstIdleMs ?? 0,
-        pmtilesBytes: current?.pmtilesBytes ?? 0,
-        requests: current?.requests ?? [],
-        raw: current?.raw ?? [],
-      }));
-      map.once("idle", () =>
-        // Check benchmark after the map is loaded and idle
-        setBenchmark((current) => ({
-          mapLoadMs: current?.mapLoadMs ?? performance.now() - benchmarkStart,
-          firstIdleMs: performance.now() - benchmarkStart,
-          ...readResources(),
-          raw: current?.raw ?? [],
-        }))
-      );
     };
     map.once("load", onLoad);
 
     // Explicit cleanup is important when React StrictMode remounts effects in dev.
     return () => {
-      map.off("data", onData);
       map.off("load", onLoad);
       mapRef.current = null;
       map.remove();
     };
-  }, [mapRef, readResources, refresh, setBenchmark, setMapLoadStart]);
+  }, [mapRef, variant, benchmarkRun, onMapReady]);
 
-  return <div ref={containerRef} id="map" role="application" aria-label="Interactive GIS map" />;
+  return (
+    <div className="map-view-shell">
+      <div ref={containerRef} className="map-canvas" role="application" />
+    </div>
+  );
 }

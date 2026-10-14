@@ -1,33 +1,43 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { Benchmark } from "../types";
 
-const isTracked = (name: string) => name.includes(".pmtiles") || name.includes("/raster-roads/") || name.includes("/raster-wards/");
+// Count payload bytes consistently (compressed response body, excluding HTTP headers).
+// The HCM boundary is a GeoJSON request, so include it alongside PMTiles ranges.
+const isTracked = (name: string) => name.includes(".pmtiles") || name.includes("/hcm.geojson") || name.includes("/hcm-road-wards.geojson");
+const payloadBytes = (entry: PerformanceResourceTiming) => entry.encodedBodySize;
+const isBoundary = (name: string, side: "raw" | "tiled") => {
+  try {
+    const url = new URL(name);
+    return url.pathname.endsWith("/hcm.geojson") && url.searchParams.get("benchmark-map") === side;
+  } catch {
+    return false;
+  }
+};
 
-export function useBenchmark(mapLoadStart: number | null) {
+export function useBenchmark(benchmarkRun: string) {
   const [benchmark, setBenchmark] = useState<Benchmark | null>(null);
   const readResources = useCallback(() => {
     // Resource Timing measures real browser transfer costs rather than estimates.
-    const resources = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).filter((entry) => isTracked(entry.name));
-    const pmtiles = resources.filter((entry) => entry.name.includes(".pmtiles"));
-    return {
-      pmtilesBytes: pmtiles.reduce((total, entry) => total + (entry.transferSize || entry.encodedBodySize || 0), 0),
-      requests: resources.map((entry) => ({ file: new URL(entry.name).pathname.split("/").pop() ?? entry.name, url: entry.name, bytes: entry.transferSize || entry.encodedBodySize || 0, durationMs: entry.duration, startMs: entry.startTime })),
-    };
-  }, []);
+    const resources = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).filter((entry) => {
+      if (!isTracked(entry.name)) return false;
+      try {
+        return new URL(entry.name).searchParams.get("benchmark-run") === benchmarkRun;
+      } catch {
+        return false;
+      }
+    });
+    const mapData = resources.filter((entry) => entry.name.includes(".pmtiles") || isBoundary(entry.name, "tiled"));
+    const rawRoads = resources.filter((entry) => new URL(entry.name).pathname.endsWith("/hcm-road-wards.geojson"));
+    const rawBoundary = resources.filter((entry) => isBoundary(entry.name, "raw"));
+    return [...mapData, ...rawRoads, ...rawBoundary].map((entry) => ({
+      url: entry.name,
+      bytes: payloadBytes(entry),
+    }));
+  }, [benchmarkRun]);
 
   const refresh = useCallback(() => {
-    const resources = readResources();
-    setBenchmark((current) => ({ mapLoadMs: current?.mapLoadMs ?? 0, firstIdleMs: current?.firstIdleMs ?? 0, ...resources, raw: current?.raw ?? [] }));
+    setBenchmark({ requests: readResources() });
   }, [readResources]);
 
-  useEffect(() => {
-    if (mapLoadStart === null) return;
-    const observer = typeof PerformanceObserver !== "undefined" ? new PerformanceObserver((list) => {
-      if (list.getEntries().some((entry) => isTracked(entry.name))) refresh();
-    }) : null;
-    observer?.observe({ type: "resource", buffered: true });
-    return () => observer?.disconnect();
-  }, [mapLoadStart, refresh]);
-
-  return { benchmark, setBenchmark, refresh, readResources };
+  return { benchmark, refresh };
 }
