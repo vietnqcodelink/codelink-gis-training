@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { Map } from "maplibre-gl";
 import { fetchRawGeoJson } from "../services/rawGeoJson";
+import { addRoadLayers, roadLayerIds } from "../map/roadStyle";
+import { addWardLayers, bindMapInteractions, SOURCE_COLORS } from "../map/layers";
 import type { RawKind } from "../types";
 
 export function useRawLayers(
@@ -21,8 +23,12 @@ export function useRawLayers(
     const map = mapRef.current;
     if (!map) return;
     if (map.getSource("raw-roads")) {
-      const layerId = kind === "roads" ? "raw-roads-line" : "raw-roads-wards";
-      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", nextVisible ? "visible" : "none");
+      const layerIds = kind === "roads"
+        ? roadLayerIds("raw-roads")
+        : ["raw-roads-wards", "raw-wards-outline"];
+      layerIds.forEach((layerId) => {
+        if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", nextVisible ? "visible" : "none");
+      });
       setRawLayers(nextLayers);
       return;
     }
@@ -42,22 +48,23 @@ export function useRawLayers(
       if (mapRef.current !== map || map.getSource("raw-roads")) return;
       map.addSource("raw-roads", { type: "geojson", data: result.data });
       const layersToShow = kind === "roads" ? { roads: true, wards: true } : nextLayers;
-      map.addLayer({
-        id: "raw-roads-line",
-        type: "line",
+      addRoadLayers(map, {
         source: "raw-roads",
+        prefix: "raw-roads",
+        visibility: layersToShow.roads ? "visible" : "none",
         filter: ["any", ["==", ["get", "dataset"], "roads"], ["!", ["has", "dataset"]]],
-        layout: { visibility: layersToShow.roads ? "visible" : "none" },
-        paint: { "line-color": "#2563eb", "line-width": 1, "line-opacity": 0.75 },
+        color: SOURCE_COLORS.raw.roads,
       });
-      map.addLayer({
-        id: "raw-roads-wards",
-        type: "fill",
+      addWardLayers(map, {
         source: "raw-roads",
+        fillId: "raw-roads-wards",
+        outlineId: "raw-wards-outline",
+        fillColor: SOURCE_COLORS.raw.wards,
+        outlineColor: SOURCE_COLORS.raw.wardOutline,
+        visibility: layersToShow.wards ? "visible" : "none",
         filter: ["==", ["get", "dataset"], "wards"],
-        layout: { visibility: layersToShow.wards ? "visible" : "none" },
-        paint: { "fill-color": "#7c3aed", "fill-opacity": 0.2 },
       });
+      bindMapInteractions(map, ["raw-roads-wards"]);
       setRawLayers(layersToShow);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;

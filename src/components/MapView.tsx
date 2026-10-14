@@ -5,7 +5,7 @@ import { Protocol } from "pmtiles";
 import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import { BENCHMARK_ZOOM, MAP_CENTER, MAP_STYLE } from "../config";
-import { addComparisonSources, addMapLayers, bindMapInteractions } from "../map/layers";
+import { addBoundaryLayers, addComparisonSources, addMapLayers, bindMapInteractions } from "../map/layers";
 
 const protocol = new Protocol();
 // Register once at module scope so React renders never duplicate the protocol.
@@ -35,24 +35,9 @@ export function MapView({ mapRef, variant, benchmarkRun, onMapReady }: Props) {
       if (variant === "tiled") {
         addMapLayers(map, benchmarkRun);
         addComparisonSources(map);
-        bindMapInteractions(map);
+        bindMapInteractions(map, ["hcm-wards-fill", "mbtiles-wards-fill"]);
       } else {
-        map.addSource("hcm-boundary", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] },
-        });
-        map.addLayer({
-          id: "hcm-fill",
-          type: "fill",
-          source: "hcm-boundary",
-          paint: { "fill-color": "#0f766e", "fill-opacity": 0.22 },
-        });
-        map.addLayer({
-          id: "hcm-outline",
-          type: "line",
-          source: "hcm-boundary",
-          paint: { "line-color": "#115e59", "line-width": 2 },
-        });
+        addBoundaryLayers(map);
       }
       onMapReady?.(map);
 
