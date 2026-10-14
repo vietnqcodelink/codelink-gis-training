@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./App.css";
 import { BenchmarkPanel } from "./components/BenchmarkPanel";
+import { BuildVersion } from "./components/BuildVersion";
 import { ComparisonToolbar } from "./components/ComparisonToolbar";
 import { MapView } from "./components/MapView";
 import { useBenchmarkSession } from "./hooks/useBenchmarkSession";
@@ -66,6 +67,7 @@ function App() {
 
   return (
     <main className="benchmark-app">
+      <BuildVersion />
       <ComparisonToolbar
         benchmarkOpen={benchmarkOpen}
         benchmarkRunning={running}

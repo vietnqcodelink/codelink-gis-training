@@ -450,3 +450,12 @@ The canonical web Dockerfile is in the `maplibre/` directory:
 maplibre/Dockerfile
 maplibre/nginx.conf
 ```
+
+When building the Docker image, pass the source revision so the label identifies the exact deployed code:
+
+```bash
+docker build \
+  -f maplibre/Dockerfile \
+  --build-arg APP_COMMIT_SHA="$(git rev-parse HEAD)" \
+  -t gis-training-web .
+```

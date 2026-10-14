@@ -7,6 +7,8 @@ RUN npm ci
 COPY . .
 ARG VITE_MBTILES_TILE_URL=https://gis-api.vioralabs.site/data/hcm-road-wards/{z}/{x}/{y}.pbf
 ENV VITE_MBTILES_TILE_URL=$VITE_MBTILES_TILE_URL
+ARG APP_COMMIT_SHA
+ENV APP_COMMIT_SHA=$APP_COMMIT_SHA
 RUN npm run build
 
 FROM nginx:1.27-alpine
