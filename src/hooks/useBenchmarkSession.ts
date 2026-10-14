@@ -1,75 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Map } from "maplibre-gl";
-import type { GeoJSONSource } from "maplibre-gl";
+import { useEffect, useRef, useState } from "react";
 import { useBenchmark } from "./useBenchmark";
+import { useBenchmarkMapSetup } from "./useBenchmarkMapSetup";
 import { useRawLayers } from "./useRawLayers";
 import { useSyncedMaps } from "./useSyncedMaps";
-import { waitForSourceRender } from "../map/waitForSourceRender";
 import { clearStoredRuns, createBenchmarkRunId, getPageRunResources, readStoredRuns, saveStoredRuns } from "../services/benchmarkRuns";
-import { fetchBenchmarkBoundary } from "../services/benchmarkBoundary";
 import type { BenchmarkRun } from "../types";
 
 export function useBenchmarkSession() {
-  const tiledMapRef = useRef<Map | null>(null);
-  const rawMapRef = useRef<Map | null>(null);
-  const [tiledMap, setTiledMap] = useState<Map | null>(null);
-  const [rawMap, setRawMap] = useState<Map | null>(null);
   const [runId] = useState(createBenchmarkRunId);
   const [startedAt] = useState(() => performance.now());
-  const tiledReadyTime = useRef<Promise<number> | null>(null);
-  const rawReadyTime = useRef<Promise<number> | null>(null);
-  const boundaryLoaded = useRef({ tiled: false, raw: false });
-  const boundaryFetchStarted = useRef(false);
+  const maps = useBenchmarkMapSetup(runId, startedAt);
+  const {
+    tiledMapRef,
+    rawMapRef,
+    tiledMap,
+    rawMap,
+    tiledReadyTime,
+    rawReadyTime,
+    boundariesReady,
+    error: mapError,
+  } = maps;
   const autoLoadStarted = useRef(false);
   const autoBenchmarkStarted = useRef(false);
   const runGeneration = useRef(0);
-  const [boundariesReady, setBoundariesReady] = useState(false);
   const [runs, setRuns] = useState<BenchmarkRun[]>(readStoredRuns);
-  const [running, setRunning] = useState(true);
+  const [benchmarkRunning, setBenchmarkRunning] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const running = benchmarkRunning && !mapError;
+  const sessionError = mapError ?? error;
   const { benchmark, refresh } = useBenchmark(runId);
   const { rawLayers, rawLoading, rawError, toggle: toggleRawLayer } = useRawLayers(rawMapRef, runId);
-
-  const onTiledReady = useCallback((map: Map) => {
-    tiledMapRef.current = map;
-    tiledReadyTime.current = waitForSourceRender(map, ["hcm-road-wards", "hcm-boundary"], startedAt, () => boundaryLoaded.current.tiled);
-    void tiledReadyTime.current.catch(() => undefined);
-    setTiledMap(map);
-  }, [startedAt]);
-
-  const onRawReady = useCallback((map: Map) => {
-    rawMapRef.current = map;
-    rawReadyTime.current = waitForSourceRender(map, ["raw-roads", "hcm-boundary"], startedAt, () => boundaryLoaded.current.raw);
-    void rawReadyTime.current.catch(() => undefined);
-    setRawMap(map);
-  }, [startedAt]);
 
   useEffect(() => {
     if (!rawMap || autoLoadStarted.current) return;
     autoLoadStarted.current = true;
     void toggleRawLayer("roads");
   }, [rawMap, toggleRawLayer]);
-
-  useEffect(() => {
-    if (!tiledMap || !rawMap || boundaryFetchStarted.current) return;
-    boundaryFetchStarted.current = true;
-
-    async function loadBoundary(map: Map, side: "tiled" | "raw") {
-      const result = await fetchBenchmarkBoundary(side, runId);
-      const source = map.getSource("hcm-boundary") as GeoJSONSource | undefined;
-      if (!source) throw new Error(`${side} boundary source is missing`);
-      await source.setData(result.data);
-      boundaryLoaded.current[side] = true;
-      map.triggerRepaint();
-    }
-
-    void Promise.all([loadBoundary(tiledMap, "tiled"), loadBoundary(rawMap, "raw")])
-      .then(() => setBoundariesReady(true))
-      .catch((cause) => {
-        setError(cause instanceof Error ? cause.message : String(cause));
-        setRunning(false);
-      });
-  }, [tiledMap, rawMap, runId]);
 
   useEffect(() => {
     if (!tiledMap || !rawMap || !boundariesReady || !rawLayers.roads || !rawLayers.wards || rawLoading || autoBenchmarkStarted.current) return;
@@ -111,15 +77,15 @@ export function useBenchmarkSession() {
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
-        setRunning(false);
+        setBenchmarkRunning(false);
       }
     })();
-  }, [runId, startedAt, rawLayers.roads, rawLayers.wards, rawLoading, rawMap, tiledMap, boundariesReady, runs, refresh]);
+  }, [runId, startedAt, rawLayers.roads, rawLayers.wards, rawLoading, tiledMap, rawMap, boundariesReady, tiledReadyTime, rawReadyTime, runs, refresh]);
 
   useEffect(() => {
     if (!rawError || !running || autoBenchmarkStarted.current) return;
     setError(rawError);
-    setRunning(false);
+    setBenchmarkRunning(false);
   }, [rawError, running]);
 
   useSyncedMaps(tiledMap, rawMap);
@@ -139,14 +105,14 @@ export function useBenchmarkSession() {
     tiledMapRef,
     rawMapRef,
     runId,
-    onTiledReady,
-    onRawReady,
+    onTiledReady: maps.onTiledReady,
+    onRawReady: maps.onRawReady,
     benchmark,
     rawLoading,
     rawError,
     runs,
     running,
-    error,
+    error: sessionError,
     clearRuns,
     rawLayers,
     toggleRawLayer,

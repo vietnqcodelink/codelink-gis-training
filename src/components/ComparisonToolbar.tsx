@@ -1,5 +1,4 @@
-type SharedLayer = "roads" | "wards" | "boundary";
-type VectorSource = "pmtiles" | "mbtiles";
+import type { SharedLayer, VectorSource } from "../types";
 
 type Props = {
   benchmarkOpen: boolean;
