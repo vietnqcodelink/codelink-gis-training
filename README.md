@@ -291,6 +291,25 @@ pmtiles verify maplibre/public/hcm-road-wards.pmtiles
 pmtiles show maplibre/public/hcm-road-wards.pmtiles
 ```
 
+## Data source, attribution and checksums
+
+All map layers are derived from the OpenStreetMap Vietnam extract. The app credits
+OpenStreetMap contributors on both maps and displays the extract snapshot date.
+After rebuilding the source or any derived files, regenerate the manifest:
+
+```bash
+cd maplibre
+npm run data:manifest
+```
+
+The command reads the snapshot timestamp from the PBF header and writes
+`public/data-manifest.json` with SHA-256 checksums and sizes for the source PBF,
+GeoJSON, PMTiles, MBTiles and PNG tile artifacts. The manifest is served without
+a long-lived cache so the recorded checksums stay current. Nginx serves hashed
+app assets as immutable, revalidates map data after one hour, applies the
+GeoJSON/PMTiles/PBF/PNG MIME types, and returns 404 for missing data files rather
+than the SPA page. Static PMTiles responses support byte ranges for partial reads.
+
 The frontend opens it through:
 
 ```text

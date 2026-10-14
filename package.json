@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "data:manifest": "node scripts/generate-data-manifest.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.11.2",
