@@ -24,7 +24,10 @@ dist-ssr
 *.sw?
 
 public/*.geojson
-public/raster*
 public/*.pmtiles
+public/raster-roads/
+public/raster-wards/
 public/build-info.json
+vietnam.osm.pbf
+out/
 *.env

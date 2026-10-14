@@ -6,8 +6,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const repoDir = resolve(projectDir, "..");
-const sourceFile = join(repoDir, "vietnam.osm.pbf");
+const sourceFile = join(projectDir, "vietnam.osm.pbf");
 const header = execFileSync("osmium", ["fileinfo", "-e", sourceFile], { encoding: "utf8" });
 const snapshot = header.match(/osmosis_replication_timestamp=(\S+)/)?.[1];
 const replicationUrl = header.match(/osmosis_replication_base_url=(\S+)/)?.[1];
@@ -17,7 +16,13 @@ if (!snapshot || !replicationUrl) {
 }
 
 async function filesIn(path) {
-  const entries = await readdir(path, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
   const nested = await Promise.all(entries.map(async (entry) => {
     const fullPath = join(path, entry.name);
     return entry.isDirectory() ? filesIn(fullPath) : [fullPath];
@@ -34,7 +39,7 @@ async function describe(path) {
       .on("error", rejectHash);
   });
   return {
-    path: relative(repoDir, path),
+    path: relative(projectDir, path),
     sizeBytes: (await stat(path)).size,
     sha256: hash.digest("hex"),
   };
@@ -44,13 +49,19 @@ const artifactPaths = [
   join(projectDir, "public/hcm.geojson"),
   join(projectDir, "public/hcm-road-wards.geojson"),
   join(projectDir, "public/hcm-road-wards.pmtiles"),
-  join(repoDir, "out/hcm/hcm-road-wards.mbtiles"),
+  join(projectDir, "out/hcm/hcm-road-wards.mbtiles"),
   ...(await filesIn(join(projectDir, "public/raster-roads"))).filter((path) => path.endsWith(".png")),
   ...(await filesIn(join(projectDir, "public/raster-wards"))).filter((path) => path.endsWith(".png")),
 ];
 
 const artifacts = [];
-for (const path of artifactPaths) artifacts.push(await describe(path));
+for (const path of artifactPaths) {
+  try {
+    artifacts.push(await describe(path));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
 
 const manifest = {
   source: {
